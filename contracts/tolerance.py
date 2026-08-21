@@ -423,8 +423,8 @@ class Contract(gl.Contract):
                 owner=gl.message.sender_address,
                 label=label[:120],
                 url=url,
-                fields=DynArray[FieldSpec](),
-                readings=DynArray[Reading](),
+                fields=gl.storage.inmem_allocate(DynArray[FieldSpec]),
+                readings=gl.storage.inmem_allocate(DynArray[Reading]),
             )
         )
         m = self.meters[len(self.meters) - 1]
@@ -543,7 +543,7 @@ class Contract(gl.Contract):
         m.readings.append(
             Reading(
                 at=gl.message_raw["datetime"],
-                values=DynArray[Value](),
+                values=gl.storage.inmem_allocate(DynArray[Value]),
                 rejected=rejected,
             )
         )
