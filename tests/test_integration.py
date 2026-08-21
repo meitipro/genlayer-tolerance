@@ -63,7 +63,7 @@ def merge(*ds):
 class TestTolerance:
     @pytest.fixture
     def contract(self):
-        factory = get_contract_factory("Contract", contract_file="contracts/tolerance.py")
+        factory = get_contract_factory(contract_file_path="tolerance.py")
         return factory.deploy(args=[])
 
     def _define(self, contract):

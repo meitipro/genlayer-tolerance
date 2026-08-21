@@ -4,6 +4,7 @@
 # There is no build step: it is deployed exactly as written.
 networks:
   default: studionet
+  studionet: {}
 
 paths:
   contracts: contracts
