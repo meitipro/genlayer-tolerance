@@ -39,8 +39,8 @@ Tolerance is a reusable numeric extraction primitive where every field declares 
 ## Links
 
 ```
-GitHub:   https://github.com/YOUR_HANDLE/genlayer-tolerance
-Contract: https://github.com/YOUR_HANDLE/genlayer-tolerance/blob/main/contracts/tolerance.py
+GitHub:   https://github.com/meitipro/genlayer-tolerance
+Contract: https://github.com/meitipro/genlayer-tolerance/blob/main/contracts/tolerance.py
 Explorer: https://explorer-studio.genlayer.com/address/{address}
 ```
 

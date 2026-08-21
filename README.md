@@ -231,7 +231,11 @@ page shows real method calls with consensus results rather than only a deploy.
 ## Related work
 
 A separate primitive, built to the same standard and submitted independently:
-[Crosscheck](https://github.com/YOUR_HANDLE/genlayer-crosscheck) — a framing-sensitivity detector for LLM-backed contracts.
+[Crosscheck](https://github.com/meitipro/genlayer-crosscheck) — a framing-sensitivity detector for LLM-backed contracts.
 
 The two share an author and a discipline, not a codebase. Each deploys, tests
 and is used entirely on its own.
+
+---
+
+Published by [InferNode](https://x.com/Infer_node).
