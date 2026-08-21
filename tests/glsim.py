@@ -30,15 +30,20 @@ import copy
 class _Generic:
     """What DynArray[T] and TreeMap[K, V] evaluate to.
 
-    Callable so `DynArray[str]()` builds an empty container, and carrying
-    __origin__ so a class annotation can be recognised at deploy time.
+    Deliberately NOT callable. Real GenVM refuses `DynArray[T]()` with
+    "this class can't be instantiated by user", because storage generics have a
+    fixed memory layout and no type erasure. The only legal way to build one in
+    memory is gl.storage.inmem_allocate(DynArray[T]).
+
+    That restriction cost a deployment once. Modelling it here means the tests
+    fail on the workstation instead of on chain.
     """
 
     def __init__(self, origin):
         self.__origin__ = origin
 
     def __call__(self, *a):
-        return self.__origin__(*a)
+        raise TypeError("this class can't be instantiated by user")
 
     def __repr__(self):
         return f"{self.__origin__.__name__}[...]"
@@ -303,8 +308,14 @@ class _Storage:
         return copy.deepcopy(x)
 
     @staticmethod
-    def inmem_allocate(t, *a):
-        return t(*a)
+    def inmem_allocate(t, *a, **kw):
+        """The only legal way to build a storage generic in memory.
+
+        Takes the fully instantiated type and the arguments its constructor
+        would take. Mirrors gl.storage.inmem_allocate in the real SDK.
+        """
+        origin = getattr(t, "__origin__", t)
+        return origin(*a, **kw)
 
 
 class _GL:
