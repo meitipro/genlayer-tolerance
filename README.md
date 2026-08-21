@@ -4,7 +4,7 @@ A reusable primitive for pulling several numbers out of a web page, where each n
 
 - **Contract:** [`contracts/tolerance.py`](contracts/tolerance.py)
 - **Tests:** `pytest tests/ -q` → **137 passed**, nothing to install but pytest
-- **Deployed:** `{address}` ([explorer](https://explorer-studio.genlayer.com/address/{address}))
+- **Deployed:** `{address}` on studionet ([explorer](https://explorer-studio.genlayer.com/address/{address}))
 - **Specification:** [CONTRACTS.md](CONTRACTS.md)
 - **Decisions and limits:** [DECISIONS.md](DECISIONS.md)
 - **License:** MIT. Copy the agreement rule; that is what it is for.
@@ -170,9 +170,8 @@ gltest --network studionet tests/test_integration.py
 ### The tests have teeth
 
 Passing tests prove nothing on their own, so every safety property was broken on
-purpose to confirm a test notices. Across the three primitives in this family,
-seventeen mutations were introduced and all seventeen were caught. The ones
-covering this contract:
+purpose to confirm a test notices. Ten mutations were introduced against this
+contract and all ten were caught:
 
 | Mutation | Caught by |
 |---|---|
