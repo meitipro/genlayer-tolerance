@@ -1,0 +1,10 @@
+# gltest configuration
+#
+# The contract is a single standalone GenVM file in contracts/.
+# There is no build step: it is deployed exactly as written.
+networks:
+  default: studionet
+
+paths:
+  contracts: contracts
+  artifacts: artifacts

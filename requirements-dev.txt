@@ -1,0 +1,6 @@
+# Unit and end-to-end tests need only this:
+pytest>=8.0
+
+# Studio integration tests additionally need the GenLayer test runner.
+# tests/test_integration.py skips itself cleanly when this is absent.
+genlayer-test
