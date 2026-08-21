@@ -1,0 +1,11 @@
+GenLayer Tolerance — deploy fixture
+===================================
+
+A plain, stable page used by the deployment demo to exercise this contract
+against a real HTTP fetch. The figures below are fixed and will never change,
+so the on-chain reading is reproducible by anyone who opens this file.
+
+Withdrawal fee: 0.40 percent
+Active meters: 137
+Treasury balance: 50000 GEN
+Open incidents: 0
