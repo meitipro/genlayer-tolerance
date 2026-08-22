@@ -560,13 +560,28 @@ class Contract(gl.Contract):
 
     # -- reads ------------------------------------------------------------
 
+    def _meter(self, meter_id: u256):
+        """Bounds-checked lookup, used by every read.
+
+        Two things go wrong without it. An id past the end raises a raw
+        IndexError, which the runtime reports as a contract error rather than
+        a readable user error. And a NEGATIVE id silently returns the last
+        record, so asking for meter -1 hands back the newest meter as if it
+        were the one requested. The second is worse, because nothing fails.
+        """
+        i = int(meter_id)
+        if i < 0 or i >= len(self.meters):
+            raise gl.vm.UserError("no such meter")
+        return self.meters[i]
+
+
     @gl.public.view
     def count(self) -> u256:
         return u256(len(self.meters))
 
     @gl.public.view
     def meter(self, meter_id: u256) -> dict:
-        m = self.meters[int(meter_id)]
+        m = self._meter(meter_id)
         return {
             "label": str(m.label),
             "url": str(m.url),
@@ -591,7 +606,7 @@ class Contract(gl.Contract):
         Numbers come back as their canonical string. Nothing here is a float:
         see the note on value() below.
         """
-        m = self.meters[int(meter_id)]
+        m = self._meter(meter_id)
         if len(m.readings) == 0:
             return {"read": False}
         r = m.readings[len(m.readings) - 1]
@@ -623,7 +638,7 @@ class Contract(gl.Contract):
         actually compare, and the exact string for anything it wants to display.
         """
         empty = {"present": False, "number": "", "scaled": 0, "scale": SCALE}
-        m = self.meters[int(meter_id)]
+        m = self._meter(meter_id)
         if len(m.readings) == 0:
             return empty
         r = m.readings[len(m.readings) - 1]

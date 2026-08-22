@@ -297,6 +297,31 @@ class TestTolerance:
         assert f["balance"]["step"] == "40000"
         assert f["visitors"]["step"] == "" and f["visitors"]["range"] == ""
 
+
+    def test_a_read_with_a_nonexistent_id_is_a_user_error(self):
+        """Not a raw IndexError. GenVM reports an uncaught Python exception as
+        a contract error, which tells a caller nothing about what went wrong."""
+        c = self.deploy()
+        for method in ("meter", "latest"):
+            with pytest.raises(S.UserError, match="no such meter"):
+                getattr(c, method)(99)
+        with pytest.raises(S.UserError, match="no such meter"):
+            c.value(99, "fee_pct")
+
+    def test_a_read_with_a_negative_id_does_not_return_the_last_record(self):
+        """The dangerous half. Python list indexing accepts -1 and returns the
+        newest meter, so a caller asking for meter -1 would silently receive a
+        different meter's reading and never know."""
+        c = self.deploy()
+        self.mocks(GOOD)
+        S.call(c, "read", 0)
+        assert c.latest(0)["accepted"] is True
+        for method in ("meter", "latest"):
+            with pytest.raises(S.UserError, match="no such meter"):
+                getattr(c, method)(-1)
+        with pytest.raises(S.UserError, match="no such meter"):
+            c.value(-1, "fee_pct")
+
     # -- validation --------------------------------------------------------
 
     @pytest.mark.parametrize(

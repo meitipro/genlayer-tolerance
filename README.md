@@ -5,7 +5,7 @@
 A reusable primitive for pulling several numbers out of a web page, where each number declares **on chain** how closely validators must agree about it.
 
 - **Contract:** [`contracts/tolerance.py`](contracts/tolerance.py)
-- **Tests:** `pytest tests/ -q` → **137 passed**, nothing to install but pytest
+- **Tests:** `pytest tests/ -q` → **139 passed**, nothing to install but pytest
 - **Deployed:** `{address}` on studionet ([explorer](https://explorer-studio.genlayer.com/address/{address}))
 - **Specification:** [CONTRACTS.md](CONTRACTS.md)
 - **Decisions and limits:** [DECISIONS.md](DECISIONS.md)
@@ -141,7 +141,7 @@ pytest tests/ -q
 ```
 
 ```
-137 passed, 1 skipped
+139 passed, 1 skipped
 ```
 
 Three suites, covering different things.
@@ -172,8 +172,8 @@ gltest --network studionet tests/test_integration.py
 ### The tests have teeth
 
 Passing tests prove nothing on their own, so every safety property was broken on
-purpose to confirm a test notices. Ten mutations were introduced against this
-contract and all ten were caught:
+purpose to confirm a test notices. Twelve mutations were introduced against
+this contract and all twelve were caught:
 
 | Mutation | Caught by |
 |---|---|
@@ -187,6 +187,8 @@ contract and all ten were caught:
 | non-finite guard parameters accepted | `test_non_finite_guards_are_refused` |
 | floats sent across the calldata boundary | `test_no_float_crosses_the_calldata_boundary` |
 | unexpected keys accepted in a proposal | `test_a_fabricated_extra_field_is_rejected` |
+| the view bounds check removed | `test_a_read_with_a_nonexistent_id_is_a_user_error` |
+| negative ids allowed through to Python list indexing | `test_a_read_with_a_negative_id_does_not_return_the_last_record` |
 
 ---
 

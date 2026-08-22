@@ -63,6 +63,25 @@ tolerance parameters, guard parameters.
 **Tests:** `test_non_finite_numbers_become_missing`,
 `test_non_finite_tolerances_are_refused`, `test_non_finite_guards_are_refused`.
 
+
+### A read with a negative id returned the newest record
+
+Every view indexed `self.meters[int(meter_id)]` directly. Two failures came out
+of one missing line.
+
+An id past the end raised a raw `IndexError`, which GenVM reports as a
+**contract error** rather than a user error — a caller learns nothing about
+what went wrong.
+
+The worse half: Python list indexing accepts `-1`. A caller asking for claim
+`-1` silently received the **newest** meter's reading, correctly formatted,
+with nothing failing anywhere. A consuming contract could act on it and never
+know it had read a different meter.
+
+**Fix:** one bounds-checked lookup helper, used by every read.
+**Tests:** `test_a_read_with_a_nonexistent_id_is_a_user_error`,
+`test_a_read_with_a_negative_id_does_not_return_the_last_record`.
+
 ---
 
 ## Why no float crosses the calldata boundary
