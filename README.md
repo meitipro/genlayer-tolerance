@@ -1,3 +1,5 @@
+<p align="left"><img src="brand/lockup.svg" alt="tolerance" height="64"></p>
+
 # Tolerance — per-field numeric agreement and plausibility guards
 
 A reusable primitive for pulling several numbers out of a web page, where each number declares **on chain** how closely validators must agree about it.
@@ -224,6 +226,7 @@ page shows real method calls with consensus results rather than only a deploy.
   state model, API, reuse
 - [DECISIONS.md](DECISIONS.md) — engineering decisions, what testing found, and
   the honest limits
+- [brand/](brand/) — the mark, the lockup, the palette, and the social card
 - [lib/tolerance_consensus.py](lib/tolerance_consensus.py) — the agreement rules on
   their own, to be copied
 
