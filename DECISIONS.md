@@ -157,6 +157,96 @@ which left those earlier tests unable to fail. Both were replaced with tests
 that isolate one rule at a time. **A test that cannot fail is worse than no
 test**, because it reports coverage it does not provide.
 
+## The storage layout, and why it looks like this
+
+Every collection in this contract is a **top level contract field**. No storage
+dataclass contains a `DynArray`, and records carry an id rather than living
+inside their parent.
+
+That is not a style preference. It cost two failed deployments.
+
+### What was tried, and what each attempt did
+
+```python
+@allow_storage
+@dataclass
+class Claim:
+    checks: DynArray[Check]
+```
+
+**Attempt 1** — build it the obvious way:
+
+```python
+Claim(..., checks=DynArray[Check]())
+# TypeError: this class can't be instantiated by user
+```
+
+**Attempt 2** — use the documented escape hatch. The storage page shows
+`User(gl.storage.inmem_allocate(TreeMap[str, str]))` working for a nested
+`TreeMap`, so the same shape should work for a nested `DynArray`:
+
+```python
+Claim(..., checks=gl.storage.inmem_allocate(DynArray[Check]))
+# TypeError: _GenericAlias.__init__() missing 1 required positional argument: 'args'
+```
+
+It did not. The subscripted generic's `__init__` is not the collection's, so
+the allocator calls the wrong one.
+
+**Being precise about this:** the documentation does not say nested collections
+are impossible, and `inmem_allocate` is documented as the way to build them. It
+failed here for `DynArray[T]` on the deployed runner. Whether that is a version
+difference, a difference between `TreeMap` and `DynArray`, or something about
+the element type, is not something that could be settled from outside — and a
+primitive should not depend on a mechanism that failed once and cannot be tested
+locally.
+
+### What the flat shape buys
+
+Top level fields are allocated by the runtime, so nothing has to be constructed
+in memory at all. `self.checks` simply exists, zero-initialised to `[]`, and a
+`Check` carries the `claim_id` it belongs to.
+
+The cost is a linear walk in the views instead of a direct index. Views are
+free to the caller and never run inside a write, so that trade is a bargain for
+a shape that cannot fail at deploy time.
+
+### The other rules from the same page, all enforced here
+
+- `list`, `dict` and `int` are **not valid storage types**. Use `DynArray[T]`,
+  `TreeMap[K, V]`, and `u256` / `i256` / `bigint`.
+- Only **fully instantiated** generics. Bare `TreeMap` is refused.
+- Persistent fields must be **declared in the class body** with a type
+  annotation. `self.something = value` on an undeclared name is not persistent
+  and is silently discarded after execution.
+- Storage objects **cannot be used inside a non-deterministic block**. Everything
+  the block here closes over is extracted to a plain `str` or list first.
+- Calldata mappings support **`str` keys only**, like JSON.
+- A storage object is a **view on a slot, not a copy**. Holding a reference
+  across a write to that slot gives you the new value, silently. Nothing here
+  holds a reference across an append to the same array.
+
+The test suite checks all of this by static analysis, and
+[`tests/glsim.py`](tests/glsim.py) refuses at class definition time everything
+GenVM refuses at deploy time — so a regression fails on the workstation in
+0.2 seconds rather than after a deployment.
+
+---
+## A duplicated method shadowed the real one
+
+While flattening the storage, an editing mistake left **two definitions of the
+same lookup helper** in the contract. Python allows this silently: the second
+definition wins and the first is dead code.
+
+It surfaced through mutation testing. A mutation to the first copy changed
+nothing, because the second copy was the one being called, and the mutation was
+reported as escaping the tests. The tests were fine; the contract had a hidden
+duplicate.
+
+Two static checks now guard it — no method defined twice in a class, no
+top-level name defined twice in the module. Both are one assertion each and
+both would have caught it immediately.
+
 ---
 
 ## Honest limits

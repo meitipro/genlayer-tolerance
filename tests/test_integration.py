@@ -63,7 +63,7 @@ def merge(*ds):
 class TestTolerance:
     @pytest.fixture
     def contract(self):
-        factory = get_contract_factory(contract_file_path="tolerance.py")
+        factory = get_contract_factory("Contract", contract_file="contracts/tolerance.py")
         return factory.deploy(args=[])
 
     def _define(self, contract):
@@ -71,9 +71,9 @@ class TestTolerance:
             args=[
                 "example status page",
                 "https://a.example/status",
-                ["fee_pct", "visitors", "balance"],
-                ["exact", "pct:5", "band:1000,100000"],
-                ["range:0,100", "", "step:40000;range:0,100000000"],
+                "fee_pct|visitors|balance",
+                "exact|pct:5|band:1000,100000",
+                "range:0,100||step:40000;range:0,100000000",
             ]
         )
         assert tx_execution_succeeded(tx)

@@ -80,6 +80,30 @@ def u8(v=0):
 
 
 def allow_storage(cls):
+    """Marks a dataclass as storable, and refuses what GenVM refuses.
+
+    A nested collection cannot be built in memory: the field would have to be
+    supplied to the constructor, and there is no legal way to make one. On
+    chain this shows up as a TypeError deep inside the runner. Catching it at
+    class definition time turns a failed deployment into a failed import.
+    """
+    for name, ann in getattr(cls, "__annotations__", {}).items():
+        origin = getattr(ann, "__origin__", None)
+        if ann in (DynArray, TreeMap) or origin in (DynArray, TreeMap):
+            raise TypeError(
+                f"{cls.__name__}.{name}: a storage dataclass cannot contain a "
+                f"collection. Make it a top level contract field and carry an "
+                f"id on the record instead."
+            )
+        if ann in (int, list, dict, tuple):
+            raise TypeError(
+                f"{cls.__name__}.{name}: {ann.__name__} is not a valid storage type"
+            )
+        if ann in (DynArray, TreeMap):
+            raise TypeError(
+                f"{cls.__name__}.{name}: only fully instantiated generics are "
+                f"allowed, write DynArray[T] or TreeMap[K, V]"
+            )
     return cls
 
 
@@ -150,6 +174,16 @@ class NonDetEnv:
                     raise value
                 return copy.deepcopy(value)
         raise UserError("no mock prompt response matched")
+
+
+class StorageInNondet(Exception):
+    """Raised when a block touches a live storage object.
+
+    On chain this is a hard error: non-deterministic blocks cannot read storage
+    at all. Contracts must extract plain values first, or use
+    gl.storage.copy_to_memory(). Modelling it means a contract that closes over
+    a storage view fails here rather than on the network.
+    """
 
 
 class _Runtime:
@@ -279,8 +313,29 @@ class _Contract:
     def __init_subclass__(cls, **kw):
         super().__init_subclass__(**kw)
 
+    #: GenVM refuses these outright as storage field types.
+    #: GenVM refuses these outright as storage field types. `float` is legal
+    #: on chain (it zero-initialises to +0) but is kept out of these contracts
+    #: for a different reason: it should not cross the calldata boundary.
+    FORBIDDEN = {int: "int (use u256, i256 or bigint)",
+                 list: "list (use DynArray[T])",
+                 dict: "dict (use TreeMap[K, V])",
+                 tuple: "tuple"}
+
     def __new__(cls, *a, **kw):
         obj = super().__new__(cls)
+        for name, ann in getattr(cls, "__annotations__", {}).items():
+            if ann in _Contract.FORBIDDEN:
+                raise TypeError(
+                    f"{cls.__name__}.{name}: {_Contract.FORBIDDEN[ann]} is not a "
+                    f"valid storage type"
+                )
+            origin0 = getattr(ann, "__origin__", None)
+            if origin0 in (list, dict, tuple, set):
+                raise TypeError(
+                    f"{cls.__name__}.{name}: builtin containers are not valid "
+                    f"storage types, use DynArray or TreeMap"
+                )
         for name, ann in getattr(cls, "__annotations__", {}).items():
             origin = getattr(ann, "__origin__", None)
             if ann is DynArray or origin is DynArray:
@@ -309,12 +364,23 @@ class _Storage:
 
     @staticmethod
     def inmem_allocate(t, *a, **kw):
-        """The only legal way to build a storage generic in memory.
+        """Mirrors gl.storage.inmem_allocate, including what it CANNOT do.
 
-        Takes the fully instantiated type and the arguments its constructor
-        would take. Mirrors gl.storage.inmem_allocate in the real SDK.
+        The real function takes a fully instantiated GENERIC DATACLASS and the
+        arguments its __init__ would take: inmem_allocate(Item[str], data,
+        label). It is not a way to build a collection.
+
+        Handing it DynArray[T] or TreeMap[K, V] fails on chain with
+        "_GenericAlias.__init__() missing 1 required positional argument",
+        because the subscripted generic's __init__ is not the collection's.
+        Refusing it here means the tests fail on the workstation instead.
         """
         origin = getattr(t, "__origin__", t)
+        if origin in (DynArray, TreeMap):
+            raise TypeError(
+                "inmem_allocate cannot build a storage collection. Declare it as "
+                "a top level contract field instead; the runtime allocates those."
+            )
         return origin(*a, **kw)
 
 

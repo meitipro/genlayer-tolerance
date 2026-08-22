@@ -5,7 +5,7 @@
 A reusable primitive for pulling several numbers out of a web page, where each number declares **on chain** how closely validators must agree about it.
 
 - **Contract:** [`contracts/tolerance.py`](contracts/tolerance.py)
-- **Tests:** `pytest tests/ -q` → **139 passed**, nothing to install but pytest
+- **Tests:** `pytest tests/ -q` → **150 passed**, nothing to install but pytest
 - **Deployed:** `{address}` on studionet ([explorer](https://explorer-studio.genlayer.com/address/{address}))
 - **Specification:** [CONTRACTS.md](CONTRACTS.md)
 - **Decisions and limits:** [DECISIONS.md](DECISIONS.md)
@@ -95,7 +95,7 @@ can never reach consensus, silently, forever.
 ## The API
 
 ```python
-define(label, url, names, tolerances, guards)   # freeze the meter
+define(label, url, names, tolerances, guards)   # three pipe separated strings
 read(meter_id)                                  # extract, agree, guard, store
 
 value(meter_id, field) -> dict   # {present, number, scaled, scale}
@@ -141,7 +141,7 @@ pytest tests/ -q
 ```
 
 ```
-139 passed, 1 skipped
+150 passed, 1 skipped
 ```
 
 Three suites, covering different things.
@@ -172,8 +172,8 @@ gltest --network studionet tests/test_integration.py
 ### The tests have teeth
 
 Passing tests prove nothing on their own, so every safety property was broken on
-purpose to confirm a test notices. Twelve mutations were introduced against
-this contract and all twelve were caught:
+purpose to confirm a test notices. Eighteen mutations were introduced against this
+contract and all eighteen were caught:
 
 | Mutation | Caught by |
 |---|---|
@@ -189,6 +189,12 @@ this contract and all twelve were caught:
 | unexpected keys accepted in a proposal | `test_a_fabricated_extra_field_is_rejected` |
 | the view bounds check removed | `test_a_read_with_a_nonexistent_id_is_a_user_error` |
 | negative ids allowed through to Python list indexing | `test_a_read_with_a_negative_id_does_not_return_the_last_record` |
+| a lookup that ignores the meter id | `test_two_meters_do_not_read_each_other_s_fields_or_readings` |
+| a lookup that ignores the reading id | `test_two_meters_do_not_read_each_other_s_fields_or_readings` |
+| a collection nested back inside a storage dataclass | `test_no_storage_dataclass_holds_a_collection` |
+| an `int` storage field | `test_no_forbidden_storage_types` |
+| a ghost field that never persists | `test_every_persistent_field_is_declared_in_the_class_body` |
+| a live storage object passed into the block | `test_no_block_closes_over_a_storage_object` |
 
 ---
 

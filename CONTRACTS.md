@@ -109,8 +109,7 @@ consensus, silently, forever.
 ### API
 
 ```python
-define(label, url, names: list[str],
-       tolerances: list[str], guards: list[str])   # freeze the meter
+define(label, url, names: str, tolerances: str, guards: str)   # freeze the meter
 read(meter_id: u256)                               # extract, agree, guard, store
 
 value(meter_id, field) -> dict   # {present, number: str, scaled: int, scale: int}

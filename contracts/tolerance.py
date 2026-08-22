@@ -327,6 +327,7 @@ Return json: {{{keys}}}"""
 @allow_storage
 @dataclass
 class FieldSpec:
+    meter_id: u256
     name: str
     mode: str       # how closely two validators must agree
     param: str
@@ -337,6 +338,7 @@ class FieldSpec:
 @allow_storage
 @dataclass
 class Value:
+    reading_id: u256
     name: str
     present: bool
     number: str          # stored as text so no precision is lost on the way in
@@ -345,8 +347,8 @@ class Value:
 @allow_storage
 @dataclass
 class Reading:
+    meter_id: u256
     at: str
-    values: DynArray[Value]
     rejected: str        # "" when accepted, otherwise why the step gate refused
 
 
@@ -356,12 +358,13 @@ class Meter:
     owner: Address
     label: str
     url: str
-    fields: DynArray[FieldSpec]
-    readings: DynArray[Reading]
 
 
 class Contract(gl.Contract):
     meters: DynArray[Meter]
+    fields: DynArray[FieldSpec]
+    readings: DynArray[Reading]
+    values: DynArray[Value]
 
     def __init__(self):
         pass
@@ -369,15 +372,23 @@ class Contract(gl.Contract):
     # -- writes -----------------------------------------------------------
 
     @gl.public.write
-    def define(
-        self,
-        label: str,
-        url: str,
-        names: list[str],
-        tolerances: list[str],
-        guards: list[str],
-    ) -> None:
+    def define(self, label: str, url: str, names: str,
+               tolerances: str, guards: str) -> None:
         """Define a meter: one page, several fields, two rules per field.
+
+        The three field lists arrive as pipe separated strings rather than as
+        list[str]. That is deliberate. GenVM storage documents `list` as
+        forbidden, and a calldata parameter typed list[str] is close enough to
+        that boundary to be a bet rather than a decision. Three strings are
+        unambiguous, they encode identically on every client, and they are
+        easier to type into Studio by hand.
+
+            names       "fee_pct|active_meters|treasury"
+            tolerances  "exact|pct:5|band:1000,100000"
+            guards      "range:0,100||step:40000;range:0,100000000"
+
+        An empty segment means no guard for that field, which is why the
+        example above has two pipes in a row.
 
         tolerances says how closely two validators must agree about a field.
         guards says what values are believable at all, and is enforced after
@@ -387,16 +398,18 @@ class Contract(gl.Contract):
         Everything is validated here rather than at read time, so a meter that
         could never reach consensus is refused before anybody depends on it.
         """
-        n = [str(x).strip() for x in names]
-        t = [str(x).strip() for x in tolerances]
-        g = [str(x).strip() for x in guards]
+        n = [x.strip() for x in str(names).split("|")]
+        t = [x.strip() for x in str(tolerances).split("|")]
+        g = [x.strip() for x in str(guards).split("|")]
 
         if len(n) == 0:
             raise gl.vm.UserError("a meter needs at least one field")
         if len(n) > MAX_FIELDS:
             raise gl.vm.UserError(f"at most {MAX_FIELDS} fields")
         if len(t) != len(n) or len(g) != len(n):
-            raise gl.vm.UserError("names, tolerances and guards must be the same length")
+            raise gl.vm.UserError(
+                "names, tolerances and guards must have the same number of "
+                "pipe separated segments")
         if len(set(n)) != len(n):
             raise gl.vm.UserError("field names must be distinct")
         if not (url.startswith("http://") or url.startswith("https://")):
@@ -418,19 +431,18 @@ class Contract(gl.Contract):
                 raise gl.vm.UserError(f"field '{name}' guard: {e}")
             specs.append((name, mode, param, step, rng))
 
+        mid = len(self.meters)
         self.meters.append(
             Meter(
                 owner=gl.message.sender_address,
                 label=label[:120],
                 url=url,
-                fields=gl.storage.inmem_allocate(DynArray[FieldSpec]),
-                readings=gl.storage.inmem_allocate(DynArray[Reading]),
             )
         )
-        m = self.meters[len(self.meters) - 1]
         for name, mode, param, step, rng in specs:
-            m.fields.append(
-                FieldSpec(name=name, mode=mode, param=param, step=step, range=rng)
+            self.fields.append(
+                FieldSpec(meter_id=u256(mid), name=name, mode=mode,
+                          param=param, step=step, range=rng)
             )
 
     @gl.public.write
@@ -442,7 +454,8 @@ class Contract(gl.Contract):
         m = self.meters[mid]
 
         url = str(m.url)
-        specs = [(str(f.name), str(f.mode), str(f.param)) for f in m.fields]
+        specs = [(str(f.name), str(f.mode), str(f.param))
+                 for f in self._specs(meter_id)]
 
         # ------------------------------------------------------------------
         # non-deterministic half
@@ -515,20 +528,18 @@ class Contract(gl.Contract):
         # as the baseline would compare an absurd value against nothing, and a
         # second absurd value would sail straight through the gate.
         previous = {}
-        for i in range(len(m.readings) - 1, -1, -1):
-            r = m.readings[i]
-            if str(r.rejected) == "":
-                for v in r.values:
-                    previous[str(v.name)] = (
-                        float(str(v.number)) if bool(v.present) else MISSING
-                    )
-                break
+        prev_i, prev_r = self._last_reading(meter_id, accepted_only=True)
+        if prev_r is not None:
+            for v in self._values_of(prev_i):
+                previous[str(v.name)] = (
+                    float(str(v.number)) if bool(v.present) else MISSING
+                )
 
         if not readable:
             rejected = "the page could not be read"
         else:
             rejected = ""
-            for f in m.fields:
+            for f in self._specs(meter_id):
                 name = str(f.name)
                 why = guard_ok(
                     str(f.step),
@@ -540,25 +551,26 @@ class Contract(gl.Contract):
                     rejected = f"field '{name}' {why}"
                     break
 
-        m.readings.append(
+        rid = len(self.readings)
+        self.readings.append(
             Reading(
+                meter_id=u256(int(meter_id)),
                 at=gl.message_raw["datetime"],
-                values=gl.storage.inmem_allocate(DynArray[Value]),
                 rejected=rejected,
             )
         )
-        stored = m.readings[len(m.readings) - 1].values
         for name, _mode, _param in specs:
             v = current[name]
-            stored.append(
+            self.values.append(
                 Value(
+                    reading_id=u256(rid),
                     name=name,
                     present=v is not MISSING,
                     number="" if v is MISSING else repr(float(v)),
                 )
             )
 
-    # -- reads ------------------------------------------------------------
+    # -- internal ---------------------------------------------------------
 
     def _meter(self, meter_id: u256):
         """Bounds-checked lookup, used by every read.
@@ -574,6 +586,38 @@ class Contract(gl.Contract):
             raise gl.vm.UserError("no such meter")
         return self.meters[i]
 
+    def _specs(self, meter_id: u256):
+        """The frozen field definitions for one meter, in declaration order.
+
+        Fields live in one flat array with a meter_id on each. Nothing nests,
+        because a storage dataclass cannot hold a collection.
+        """
+        target = int(meter_id)
+        return [f for f in self.fields if int(f.meter_id) == target]
+
+    def _last_reading(self, meter_id: u256, accepted_only: bool = False):
+        """The most recent reading for a meter, or None.
+
+        accepted_only walks back past rejected readings. That distinction is
+        load-bearing: taking the last reading as the guard baseline would
+        compare an absurd value against nothing, and the next absurd value
+        would sail straight through.
+        """
+        target = int(meter_id)
+        for i in range(len(self.readings) - 1, -1, -1):
+            r = self.readings[i]
+            if int(r.meter_id) != target:
+                continue
+            if accepted_only and str(r.rejected) != "":
+                continue
+            return i, r
+        return None, None
+
+    def _values_of(self, reading_index: int):
+        return [v for v in self.values if int(v.reading_id) == reading_index]
+
+    # -- reads ------------------------------------------------------------
+
 
     @gl.public.view
     def count(self) -> u256:
@@ -585,7 +629,8 @@ class Contract(gl.Contract):
         return {
             "label": str(m.label),
             "url": str(m.url),
-            "readings": len(m.readings),
+            "readings": sum(1 for r in self.readings
+                            if int(r.meter_id) == int(meter_id)),
             "fields": [
                 {
                     "name": str(f.name),
@@ -595,7 +640,7 @@ class Contract(gl.Contract):
                     "step": str(f.step),
                     "range": str(f.range),
                 }
-                for f in m.fields
+                for f in self._specs(meter_id)
             ],
         }
 
@@ -606,10 +651,10 @@ class Contract(gl.Contract):
         Numbers come back as their canonical string. Nothing here is a float:
         see the note on value() below.
         """
-        m = self._meter(meter_id)
-        if len(m.readings) == 0:
+        self._meter(meter_id)
+        idx, r = self._last_reading(meter_id)
+        if r is None:
             return {"read": False}
-        r = m.readings[len(m.readings) - 1]
         return {
             "read": True,
             "at": str(r.at),
@@ -617,7 +662,7 @@ class Contract(gl.Contract):
             "rejected_because": str(r.rejected),
             "values": {
                 str(v.name): (str(v.number) if bool(v.present) else "")
-                for v in r.values
+                for v in self._values_of(idx)
             },
         }
 
@@ -638,13 +683,13 @@ class Contract(gl.Contract):
         actually compare, and the exact string for anything it wants to display.
         """
         empty = {"present": False, "number": "", "scaled": 0, "scale": SCALE}
-        m = self._meter(meter_id)
-        if len(m.readings) == 0:
+        self._meter(meter_id)
+        idx, r = self._last_reading(meter_id)
+        if r is None:
             return empty
-        r = m.readings[len(m.readings) - 1]
         if str(r.rejected) != "":
             return empty
-        for v in r.values:
+        for v in self._values_of(idx):
             if str(v.name) == field and bool(v.present):
                 text = str(v.number)
                 return {
