@@ -5,7 +5,7 @@
 A reusable primitive for pulling several numbers out of a web page, where each number declares **on chain** how closely validators must agree about it.
 
 - **Contract:** [`contracts/tolerance.py`](contracts/tolerance.py)
-- **Tests:** `pytest tests/ -q` → **150 passed**, nothing to install but pytest
+- **Tests:** `pytest tests/ -q` → **151 passed**, nothing to install but pytest
 - **Deployed:** `{address}` on studionet ([explorer](https://explorer-studio.genlayer.com/address/{address}))
 - **Specification:** [CONTRACTS.md](CONTRACTS.md)
 - **Decisions and limits:** [DECISIONS.md](DECISIONS.md)
@@ -141,7 +141,7 @@ pytest tests/ -q
 ```
 
 ```
-150 passed, 1 skipped
+151 passed, 1 skipped
 ```
 
 Three suites, covering different things.
@@ -172,8 +172,8 @@ gltest --network studionet tests/test_integration.py
 ### The tests have teeth
 
 Passing tests prove nothing on their own, so every safety property was broken on
-purpose to confirm a test notices. Eighteen mutations were introduced against this
-contract and all eighteen were caught:
+purpose to confirm a test notices. Nineteen mutations were introduced against
+this contract and all nineteen were caught:
 
 | Mutation | Caught by |
 |---|---|
@@ -195,6 +195,7 @@ contract and all eighteen were caught:
 | an `int` storage field | `test_no_forbidden_storage_types` |
 | a ghost field that never persists | `test_every_persistent_field_is_declared_in_the_class_body` |
 | a live storage object passed into the block | `test_no_block_closes_over_a_storage_object` |
+| a storage field declared twice | `test_no_storage_field_is_declared_twice` |
 
 ---
 

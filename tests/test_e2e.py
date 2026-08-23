@@ -575,6 +575,28 @@ class TestStorageShape:
                         f"which may be a live storage object"
                     )
 
+    def test_no_storage_field_is_declared_twice(self):
+        """A duplicated field annotation is silent in Python and is not
+        something to hand to a storage layout builder.
+
+        This is not hypothetical. An editing mistake left
+
+            claims: DynArray[Claim]
+            checks: DynArray[Check]
+            checks: DynArray[Check]
+
+        in this contract, and every behavioural test still passed, because
+        Python simply keeps the last annotation and carries on.
+        """
+        import ast, collections, pathlib
+        tree = ast.parse(pathlib.Path(CONTRACT_PATH).read_text())
+        for cls in [x for x in tree.body if isinstance(x, ast.ClassDef)]:
+            names = [st.target.id for st in cls.body
+                     if isinstance(st, ast.AnnAssign)
+                     and isinstance(st.target, ast.Name)]
+            dupes = [n for n, c in collections.Counter(names).items() if c > 1]
+            assert not dupes, f"{cls.name} declares {dupes} more than once"
+
     def test_no_method_is_defined_twice(self):
         """A duplicated method silently shadows the first one.
 
