@@ -457,6 +457,16 @@ class Contract(gl.Contract):
         specs = [(str(f.name), str(f.mode), str(f.param))
                  for f in self._specs(meter_id)]
 
+        # The block closes over plain strings only, and returns plain strings
+        # only. Not a style choice: a nested mapping or a bool in a block's
+        # return value fails inside the calldata encoder, which is outside the
+        # contract, so it surfaces as an unknown result code with no traceback
+        # at all. See DECISIONS.md. Everything crossing that boundary here is
+        # a flat dict of str, which is the shape known to survive.
+        names_s = "|".join(n for n, _m, _p in specs)
+        modes_s = "|".join(md for _n, md, _p in specs)
+        params_s = "|".join(pm for _n, _m, pm in specs)
+
         # ------------------------------------------------------------------
         # non-deterministic half
         # ------------------------------------------------------------------
@@ -468,19 +478,31 @@ class Contract(gl.Contract):
             try:
                 page = gl.nondet.web.render(url, mode="text")[:MAX_PAGE_CHARS]
             except Exception:
-                return {"readable": False, "values": {}}
+                return {"readable": "no", "values": ""}
             if len(page.strip()) < 40:
-                return {"readable": False, "values": {}}
+                return {"readable": "no", "values": ""}
 
-            out = gl.nondet.exec_prompt(build_prompt(page, specs), response_format="json")
-            values = {}
-            for name, _mode, _param in specs:
+            # Gate on the NAMES, never on the string being split. A field with
+            # tolerance "exact" carries an empty param, so params_s can be ""
+            # or "||" while there are still fields; treating that as "no
+            # fields" walks off the end of the list.
+            names = names_s.split("|") if names_s != "" else []
+            modes = modes_s.split("|") if names else []
+            params = params_s.split("|") if names else []
+            if len(modes) != len(names) or len(params) != len(names):
+                return {"readable": "no", "values": ""}
+            inner = [(names[i], modes[i], params[i]) for i in range(len(names))]
+
+            out = gl.nondet.exec_prompt(build_prompt(page, inner), response_format="json")
+            parts = []
+            for name in names:
                 v = coerce_number(out.get(name, None))
-                # Sent as a string so no float formatting difference between
-                # nodes can turn into a spurious calldata mismatch. The tolerance
-                # comparison happens on floats, after parsing, on both sides.
-                values[name] = "" if v is MISSING else repr(float(v))
-            return {"readable": True, "values": values}
+                # Each number is text, in field order, joined by a pipe. Numbers
+                # stay text so no float formatting difference between two nodes
+                # can turn into a spurious mismatch; the tolerance comparison
+                # happens on floats after parsing, on both sides.
+                parts.append("" if v is MISSING else repr(float(v)))
+            return {"readable": "yes", "values": "|".join(parts)}
 
         def validator_fn(leaders_res: gl.vm.Result) -> bool:
             if not isinstance(leaders_res, gl.vm.Return):
@@ -494,22 +516,26 @@ class Contract(gl.Contract):
             # Both nodes must agree on whether the page was readable at all.
             # One node reading a page the other could not is a real
             # disagreement, and comparing values across it is meaningless.
-            if bool(mine["readable"]) != bool(data.get("readable", False)):
+            if str(mine["readable"]) != str(data.get("readable", "")):
                 return False
-            if not mine["readable"]:
+            if str(mine["readable"]) != "yes":
                 return True
 
-            theirs_raw = data.get("values", {})
-            if not isinstance(theirs_raw, dict):
+            names = names_s.split("|") if names_s != "" else []
+            mine_parts = str(mine["values"]).split("|") if names else []
+            their_parts = str(data.get("values", "")).split("|") if names else []
+            if len(mine_parts) != len(names) or len(their_parts) != len(names):
                 return False
-            mine_values = {
-                k: (MISSING if v == "" else float(v))
-                for k, v in mine["values"].items()
-            }
-            theirs = {
-                k: (MISSING if str(v) == "" else str(v))
-                for k, v in theirs_raw.items()
-            }
+
+            mine_values = {}
+            theirs = {}
+            for i in range(len(names)):
+                mine_values[names[i]] = (
+                    MISSING if mine_parts[i] == "" else float(mine_parts[i])
+                )
+                theirs[names[i]] = (
+                    MISSING if their_parts[i] == "" else their_parts[i]
+                )
             return readings_agree(mine_values, theirs, specs)
 
         res = gl.vm.run_nondet_unsafe(leader_fn, validator_fn)
@@ -517,11 +543,14 @@ class Contract(gl.Contract):
         # ------------------------------------------------------------------
         # deterministic half: the plausibility gate
         # ------------------------------------------------------------------
-        readable = bool(res.get("readable", False))
-        raw = res.get("values", {})
+        readable = str(res.get("readable", "no")) == "yes"
+        parts = str(res.get("values", "")).split("|") if specs else []
         current = {}
-        for name, _mode, _param in specs:
-            current[name] = coerce_number(raw.get(name, "")) if readable else MISSING
+        for i, (name, _mode, _param) in enumerate(specs):
+            if readable and i < len(parts):
+                current[name] = coerce_number(parts[i])
+            else:
+                current[name] = MISSING
 
         # The baseline is the last ACCEPTED reading, not the last reading.
         # Walking back matters: if the previous reading was rejected, taking it

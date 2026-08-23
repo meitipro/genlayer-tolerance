@@ -113,10 +113,11 @@ class TestTolerance:
         with pytest.raises(S.UserError):
             S.call(c, "read", 0)
 
-    def test_a_fabricated_extra_field_is_rejected(self):
-        """It could not reach storage anyway, since the deterministic half only
-        walks the frozen field list, but a malformed proposal is cheap to
-        refuse and refusing it keeps the failure legible."""
+    def test_a_fabricated_extra_value_is_rejected(self):
+        """Values cross the boundary as one pipe-joined string in field order.
+        A segment count that does not match the frozen field list is a
+        malformed proposal, cheap to refuse, and refusing it keeps the failure
+        legible instead of silently dropping the extra."""
         c = self.deploy()
         self.mocks(GOOD)
         real = S._run_nondet_unsafe
@@ -124,7 +125,7 @@ class TestTolerance:
         def lying(leader_fn, validator_fn):
             S.RT.active = S.RT.leader_env
             out = leader_fn()
-            out["values"]["ghost"] = "1.0"
+            out["values"] = str(out["values"]) + "|1.0"   # one segment too many
             S.RT.active = S.RT.validator_env
             ok = bool(validator_fn(S.Return(out)))
             S.RT.active = None
@@ -569,11 +570,40 @@ class TestStorageShape:
                         continue
                     expr = outer[x.id]
                     plain = (expr.startswith(("str(", "int(", "float(", "bool(", "["))
+                             or expr.startswith("'|'.join") or expr.startswith('"|".join')
                              or "copy_to_memory" in expr)
                     assert plain, (
                         f"{m.name}: the block closes over `{x.id} = {expr}`, "
                         f"which may be a live storage object"
                     )
+
+    def test_the_block_boundary_carries_flat_strings_only(self):
+        """Nothing but a flat dict of str crosses the block boundary.
+
+        This is the bug that cost a deployment. The block returned
+        {"readable": bool, "values": {nested dict}}. On chain that failed
+        inside the calldata encoder, which is OUTSIDE the contract, so there
+        was no traceback and the result code came back as <unknown>. A sibling
+        contract whose block returned a flat dict of strings worked fine
+        against the same runtime, which is what identified the shape as the
+        cause.
+        """
+        import ast, pathlib
+        tree = ast.parse(pathlib.Path(CONTRACT_PATH).read_text())
+        for blk in [x for x in ast.walk(tree) if isinstance(x, ast.FunctionDef)
+                    and x.name == "leader_fn"]:
+            returns = [n for n in ast.walk(blk) if isinstance(n, ast.Return)]
+            assert returns, "leader_fn returns nothing"
+            for r in returns:
+                assert isinstance(r.value, ast.Dict), "must return a dict"
+                for k, v in zip(r.value.keys, r.value.values):
+                    assert isinstance(k, ast.Constant) and isinstance(k.value, str), \
+                        f"key {ast.unparse(k)} is not a plain string"
+                    src = ast.unparse(v)
+                    assert not isinstance(v, (ast.Dict, ast.List, ast.Set, ast.Tuple)), \
+                        f"{k.value} carries a container: {src}"
+                    assert src not in ("True", "False"), \
+                        f"{k.value} carries a bool: bools do not survive the encoder"
 
     def test_no_storage_field_is_declared_twice(self):
         """A duplicated field annotation is silent in Python and is not

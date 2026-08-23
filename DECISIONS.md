@@ -249,6 +249,50 @@ both would have caught it immediately.
 
 ---
 
+## A nested mapping in a block's return value killed the transaction
+
+`read` failed on chain with `Execution Result: ERROR`, `Result Code: <unknown>`,
+and **no stderr at all**. Two earlier failures in this project had produced full
+Python tracebacks, so the absence of one was the signal: this was not an
+exception in the contract.
+
+The block was returning
+
+```python
+{"readable": True, "values": {"fee_pct": "0.4", ...}}
+```
+
+A bool, and a nested mapping.
+
+A block's return value has to be encoded into calldata so validators can compare
+it and the deterministic half can read it. That encoding happens **outside** the
+contract, which is why nothing in the contract could catch it and nothing
+appeared in stderr.
+
+What identified it was a sibling contract, written by the same hand against the
+same runtime, whose block returned a flat dict of strings and worked first time.
+That was the only structural difference left after the URL, the page, the
+parameters and the storage layout had each been ruled out by direct test.
+
+**Fix:** the boundary now carries a flat dict of `str` only. Values cross as one
+pipe-joined string in field order; an empty segment means absent. The block also
+closes over three joined strings rather than a list of tuples, so nothing but
+`str` moves in either direction.
+
+**Test:** `test_the_block_boundary_carries_flat_strings_only` walks the AST of
+every `leader_fn` return and fails on a container or a bool.
+
+**A second bug came out of the fix**, which is worth recording because it is the
+kind that only shows up on one field configuration. The split guards read
+`params_s.split("|") if params_s else []`. A field with tolerance `exact`
+carries an empty param, so a single-field meter produces `params_s == ""`, the
+guard treats it as "no fields", and the next line indexes off the end of an
+empty list. Gating on the name count instead of on the string being split fixes
+it. Caught by `test_two_meters_do_not_read_each_other_s_fields_or_readings`,
+which was the only test using a meter whose every param was empty.
+
+---
+
 ## Honest limits
 
 Things a reviewer should know that the README does not lead with.
